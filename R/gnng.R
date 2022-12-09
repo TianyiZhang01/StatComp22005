@@ -1,4 +1,4 @@
-#' @title The group LARS method to select factors in liner regression problem raised by Yuan and Lin(2004)
+#' @title The group non-negetive garrotte method to select factors in liner regression problem raised by Yuan and Lin(2004)
 #' @description The group non-negetive garrotte method to select factors in liner regression problem raised by Yuan and Lin(2004)
 #' @param X the design matrix. Some details about X are shown in group
 #' @param Y the response variable

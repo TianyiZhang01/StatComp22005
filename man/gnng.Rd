@@ -2,7 +2,7 @@
 % Please edit documentation in R/gnng.R
 \name{gnng}
 \alias{gnng}
-\title{The group LARS method to select factors in liner regression problem raised by Yuan and Lin(2004)}
+\title{The group non-negetive garrotte method to select factors in liner regression problem raised by Yuan and Lin(2004)}
 \usage{
 gnng(X, Y, sigma = -1, group, scale = FALSE)
 }
