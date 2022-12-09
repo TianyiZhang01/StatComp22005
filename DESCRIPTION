@@ -1,0 +1,16 @@
+Package: StatComp22005
+Type: Package
+Title: StatComp22005
+Version: 1.0
+Author: Tianyi Zhang
+Maintainer: Tianyi Zhang <3320676831@qq.com>
+Description: Final homework for 'Statistical Computing' course. It also includes two R functions to solving factor select problem in linear model and a Cpp function comes from my homework which generate a gibbs sample.
+Suggests: knitr, rmarkdown
+VignetteBuilder: knitr
+License: GPL (>=2)
+Encoding: UTF-8
+Imports: Rcpp, MASS, DAAG, boot, bootstrap, dplyr, lars, microbenchmark, xtable
+LinkingTo: Rcpp
+RoxygenNote: 7.2.2
+URL: http://github.com/TianyiZhang01/StatComp22005
+BugReports: http://github.com/TianyiZhang01/StatComp22005/issues
