@@ -1,8 +1,8 @@
 #include <Rcpp.h>
-#include <stdio.h>
-#include <math.h>
 using namespace Rcpp;
 
+#include <stdio.h>
+#include <math.h>
 
 
 //' @title a Gibbs sampler using Rcpp
