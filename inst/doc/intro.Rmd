@@ -1,0 +1,442 @@
+---
+title: "intro"
+author: "Tianyi Zhang"
+date: "`r Sys.Date()`"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{intro}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(ecomment = NA)
+```
+
+### gLARS and gnng
+
+We use a simple sample and test our gLARS() and gnng(), and compared with the result of LARS method and stepwise method in the package lars, by graphing all 4 solution paths. 
+
+#### Sample
+
+We first generate $Z_1, Z_2, Z_3 \sim U\{0, 1, 2\}$ and $Z_4, Z_5 \sim U\{0, 1, 2, 3\}$, thus we have $5$ factors, and then use $3 \times 2 + 2 \times 3 = 12$ indicator variables to describe the value of $Z$. Giving a coefficient vector and noise term, we can get the respond variable $Y$. Now we want to find out which FACTORS have more effect on $Y$.
+
+```{r}
+X = matrix(0, nrow = 100, ncol = 12)
+
+for(j in 1:3)
+{
+  Z = sample(c(0,1,2), 100, replace = TRUE)
+  for(i in 1:100)
+  {
+    if(Z[i] == 0) X[i, 2*j-1] = 1
+    if(Z[i] == 1) X[i, 2*j] = 1
+  }
+}
+
+for(j in 1:2)
+{
+  Z = sample(c(0,1,2,3), 100, replace = TRUE)
+  for(i in 1:100)
+  {
+    if(Z[i] == 0) X[i, 6 + 3*j-2] = 1
+    if(Z[i] == 1) X[i, 6 + 3*j-1] = 1
+    if(Z[i] == 2) X[i, 6 + 3*j] = 1
+  }
+}
+
+coef = c(5, -4, 0, 0, 2.5, 2, 1.8, 1.2, -1, 0, 0, 0)
+Y = X %*% coef + rnorm(100, 0, 0.5)
+```
+
+#### Function
+
+```{r}
+#Group LARS
+gLARS = function(X, Y, sigma = -1, group, scale = FALSE)
+{
+
+  st = Sys.time()
+  #计时开始
+
+  X = scale(X, scale = scale)
+  Y = scale(Y, scale = scale)
+  #中心化
+
+  n = dim(X)[1]
+  M = dim(X)[2]
+  J = length(group)
+  beta = 0
+  k = 0
+  r = Y
+  activeset = numeric(0)
+  Xacts = numeric(0)
+  rstorage = matrix(0, nrow = n, ncol = J+1)
+  betastorage = matrix(0, nrow = M, ncol = J)
+
+  betals = MASS::ginv(t(X) %*% X) %*% t(X) %*% Y
+  if(sigma == -1)
+  {
+    res = Y - X %*% betals
+    sigma = sum(res ^ 2) / (n - M)
+  }
+
+  I = numeric(J)
+  I[1] = 0
+  flag = 0
+  for(j in 1:J)
+  {
+    flag = flag + group[j]
+    I[j+1] = flag
+  }
+  #初始化
+
+  temp = 0
+  index = 0
+  for(i in 1:J)
+  {
+    corr = numeric(J)
+    corr[i] = sum((t(X[, (I[i] + 1):I[i + 1]]) %*% r) ^ 2) / group[i]
+    if(corr[i] > temp)
+    {
+      temp = corr[i]
+      index = i
+    }
+  }
+  activeset = sort(c(activeset, index))
+  Xacts = sort(c(Xacts, (I[index] + 1):I[index + 1]))
+  #初始化
+
+  while(1)
+  {
+    direc = MASS::ginv(t(X[, Xacts]) %*% X[, Xacts]) %*% t(X[, Xacts]) %*% r
+    direc0 = numeric(M)
+    l = 0
+    for(i in Xacts)
+    {
+      l = l + 1
+      direc0[i] = direc[l]
+    }
+    move = X %*% direc0
+    #选择方向
+
+    alpha = rep(1, J)
+    for(j in (1:J)[-activeset])
+    {
+      f = function(x)
+      {
+        return(sum((t(X[, (I[j] + 1):I[j + 1]]) %*% (r - x * move)) ^ 2 / group[j]) - sum((t(X[, (I[activeset[1]] + 1):I[activeset[1] + 1]]) %*% (r - x * move)) ^ 2 / group[activeset[1]]))
+      }
+      if(f(-0.1) * f(1) > 0)
+      {
+        alpha[j] = 1
+      } else
+      {
+        alpha[j] = stats::uniroot(f, c(-0.1, 1))$root
+      }
+    }
+    alphamin = min(alpha)
+    jstar = which(alpha == alphamin)
+    activeset = sort(union(activeset, jstar))
+    Xacts = sort(union(Xacts, (I[jstar[1]] + 1):I[jstar[1] + 1]))
+    #选择距离
+
+    beta = beta + alpha[jstar[1]] * direc0
+    r = Y - X %*% beta
+    k = k+1
+    #更新
+
+    betastorage[, k] = beta
+    if(alphamin == 1) break
+    #储存路径、检查是否完成计算
+  }
+
+  betastorage = cbind(rep(0, M), betastorage)
+  #补上空模型
+
+  rstorage = X %*% betastorage
+  for(i in 1:(J+1))
+  {
+    rstorage[, i] = Y - rstorage[, i]
+  }
+  #计算残差
+
+  df = 0
+  betagr = matrix(0, nrow = J, ncol = J)
+  for(i in 1:J)
+  {
+    for(j in 1:J)
+    {
+      betagr[j, i] = sqrt(sum((betastorage[(I[j] + 1):I[j + 1], i+1] - betastorage[(I[j] + 1):I[j + 1], i])^2))
+    }
+  }
+  for(i in 1:J)
+  {
+    temp = betastorage[, i]
+    betasl = numeric(J)
+    betagrr = numeric(J)
+    for(j in 1:J)
+    {
+      betasl[j] = 1 - isTRUE(all.equal(sum(temp[(I[j] + 1):I[j + 1]] ^ 2), 0))
+      betagrr[j] = sum(betagr[j, 1:i]) / sum(betagr[j, ]) * (group[j] - 1)
+    }
+    df = c(df, sum(betasl) + sum(betagrr))
+  }
+
+  Cp = numeric(J+1)
+  for(i in 1:(J+1))
+  {
+    Cp[i] = sum(rstorage[, i] ^ 2) / sigma ^ 2 - n + 2 * df[i]
+  }
+  #计算Cp值
+
+  rate = numeric(J+1)
+  b0 = sum(abs(betals))
+  for(j in 1:(J+1))
+  {
+    rate[j] = sum(abs(betastorage[, j])) / b0
+  }
+  #计算长度
+
+
+  #Rinverse = MASS::ginv(qr.R(qr))
+  #betastorage = Rinverse %*% betastorage
+  #正交化还原
+
+  fi = Sys.time()
+  t = fi - st
+  #计时结束
+
+  return(list(beta = betastorage, residuals = rstorage, Cp = Cp, t = t, rate = rate))
+}
+```
+
+```{r}
+#Group non-negative Garrotte
+gnng = function(X, Y, sigma = -1, group, scale = FALSE)
+{
+
+  st = Sys.time()
+  #计时开始
+
+  n = dim(X)[1]
+  M = dim(X)[2]
+  J = length(group)
+  d = rep(0, J)
+  k = 0
+  r = Y
+  activeset = numeric(0)
+  rstorage = matrix(nrow = n, ncol = 0)
+  dstorage = matrix(nrow = J, ncol = 0)
+  betastorage = matrix(nrow = M, ncol = 0)
+
+  I = numeric(J)
+  I[1] = 0
+  flag = 0
+  for(j in 1:J)
+  {
+    flag = flag + group[j]
+    I[j+1] = flag
+  }
+  #初始化
+
+  X = scale(X, scale = scale)
+  Y = scale(Y, scale = scale)
+  #中心化
+
+  betals = MASS::ginv(t(X) %*% X) %*% t(X) %*% Y
+  if(sigma == -1)
+  {
+    res = Y - X %*% betals
+    sigma = sum(res ^ 2) / (n - M)
+  }
+  Z = matrix(0, nrow = n, ncol = J)
+
+  for(j in 1:J)
+  {
+    Z[, j] = X[, (I[j]+1):I[j+1]] %*% betals[(I[j]+1):I[j+1]]
+  }
+  #OLS
+
+  temp = 0
+  index = 0
+  for(i in 1:J)
+  {
+    corr = numeric(J)
+    corr[i] = t(Z[, i]) %*% r / group[i]
+    if(corr[i] > temp)
+    {
+      temp = corr[i]
+      index = i
+    }
+  }
+  activeset = sort(c(activeset, index))
+  #初始化
+
+  while(1)
+  {
+    direc = MASS::ginv(t(Z[, activeset]) %*% Z[, activeset]) %*% t(Z[, activeset]) %*% r
+    direc0 = numeric(J)
+    l = 0
+    for(i in activeset)
+    {
+      l = l + 1
+      direc0[i] = direc[l]
+    }
+    move = Z %*% direc0
+    #选择方向
+
+    alpha = rep(1, J)
+    for(j in (1:J)[-activeset])
+    {
+      f = function(x)
+      {
+        return(t(Z[, j]) %*% (r - x * move) / group[j] - t(Z[, activeset[1]]) %*% (r - x * move) / group[activeset[1]])
+      }
+      if(f(-0.1) * f(1.1) > 0)
+      {
+        alpha[j] = 1
+      } else
+      {
+        alpha[j] = stats::uniroot(f, c(-0.1, 1.1))$root
+      }
+    }
+    for(j in activeset)
+    {
+      betaj = -d[j] / MASS::ginv(t(Z[, j]) %*% Z[, j]) %*% t(Z[, j]) %*% r
+      alpha[j] = min(betaj, 1)
+    }
+
+    if(max(alpha) <= 0) alpha = rep(1, J)
+    alphamin = min(alpha[which(alpha > 0)])
+    jstar = which(alpha == alphamin)
+    d = d + alphamin * direc0
+
+    if(length(activeset) > 0 & length(intersect(jstar, activeset)) == length(jstar))
+    {
+      activeset = sort(setdiff(activeset, jstar))
+    } else
+    {
+      activeset = sort(union(activeset, jstar))
+    }
+    #选择距离
+
+    r = Y - Z %*% d
+    k = k+1
+    #更新
+
+    dstorage = cbind(dstorage, d)
+    if(alphamin == 1) break
+    #储存路径、检查是否完成计算
+  }
+
+  dstorage = cbind(rep(0, J), dstorage)
+  #补上空模型
+
+  rstorage = Z %*% dstorage
+  for(i in 1:dim(dstorage)[2])
+  {
+    rstorage[, i] = Y - rstorage[, i]
+    dbeta = c()
+    for(j in 1:J)
+    {
+      dbeta = c(dbeta, dstorage[j, i] * betals[(I[j]+1):I[j+1]])
+    }
+    betastorage = cbind(betastorage, dbeta)
+  }
+  #计算残差、β
+
+  df = 0
+  K = dim(dstorage)[2]
+  for(i in 1:K)
+  {
+    temp = dstorage[, i]
+    dsl = numeric(J)
+    d = numeric(J)
+    for(j in 1:J)
+    {
+      dsl[j] = 1 - isTRUE(all.equal(temp[j], 0))
+      d[j] = temp[j] * (group[j] - 2)
+    }
+    df = c(df, sum(dsl) + sum(d))
+  }
+
+  Cp = numeric(J+1)
+  for(i in 1:(J+1))
+  {
+    Cp[i] = sum(rstorage[, i] ^ 2) / sigma ^ 2 - n + 2 * df[i]
+  }
+  #计算Cp值
+
+  rate = numeric(K)
+  b0 = sum(abs(betals))
+  for(j in 1:K)
+  {
+    rate[j] = sum(abs(betastorage[, j])) / b0
+  }
+  #计算长度
+
+  #Rinverse = MASS::ginv(qr.R(qr))
+  #betastorage = Rinverse %*% betastorage
+  #正交化还原
+
+  fi = Sys.time()
+  t = fi - st
+  #计时结束
+
+  return(list(beta = betastorage, residuals = rstorage, Cp = Cp, t = t, rate = rate))
+}
+```
+
+#### Result
+
+```{r}
+b = gLARS(X, Y, group = c(2,2,2,3,3), sigma = 0.5)
+x = b$rate
+betagLARS = b$beta
+plot(x = x, y = betagLARS[1, ], type = "b", pch = "*", xlim = c(0, 1), ylim = c(-4, 5), lwd = 1, 
+     xlab = "|beta| / max|beta|", ylab = "coef", main = "Group LARS")
+lines(x = x, y = betagLARS[2, ], type = "b", pch = "*", col = "black", lwd = 1)
+lines(x = x, y = betagLARS[3, ], type = "b", pch = "*", col = "red", lwd = 1)
+lines(x = x, y = betagLARS[4, ], type = "b", pch = "*", col = "red", lwd = 1)
+lines(x = x, y = betagLARS[5, ], type = "b", pch = "*", col = "blue", lwd = 1)
+lines(x = x, y = betagLARS[6, ], type = "b", pch = "*", col = "blue", lwd = 1)
+lines(x = x, y = betagLARS[7, ], type = "b", pch = "*", col = "green", lwd = 1)
+lines(x = x, y = betagLARS[8, ], type = "b", pch = "*", col = "green", lwd = 1)
+lines(x = x, y = betagLARS[9, ], type = "b", pch = "*", col = "green", lwd = 1)
+lines(x = x, y = betagLARS[10, ], type = "b", pch = "*", col = "brown", lwd = 1)
+lines(x = x, y = betagLARS[11, ], type = "b", pch = "*", col = "brown", lwd = 1)
+lines(x = x, y = betagLARS[12, ], type = "b", pch = "*", col = "brown", lwd = 1)
+```
+
+```{r}
+c = gnng(X, Y, group = c(2,2,2,3,3), sigma = 0.5)
+x = c$rate
+betagLARS = c$beta
+plot(x = x, y = betagLARS[1, ], type = "b", pch = "*", xlim = c(0, 1), ylim = c(-4, 5), lwd = 1,
+     xlab = "|beta| / max|beta|", ylab = "coef", main = "Group non-negetive garrotte")
+lines(x = x, y = betagLARS[2, ], type = "b", pch = "*", col = "black", lwd = 1)
+lines(x = x, y = betagLARS[3, ], type = "b", pch = "*", col = "red", lwd = 1)
+lines(x = x, y = betagLARS[4, ], type = "b", pch = "*", col = "red", lwd = 1)
+lines(x = x, y = betagLARS[5, ], type = "b", pch = "*", col = "blue", lwd = 1)
+lines(x = x, y = betagLARS[6, ], type = "b", pch = "*", col = "blue", lwd = 1)
+lines(x = x, y = betagLARS[7, ], type = "b", pch = "*", col = "green", lwd = 1)
+lines(x = x, y = betagLARS[8, ], type = "b", pch = "*", col = "green", lwd = 1)
+lines(x = x, y = betagLARS[9, ], type = "b", pch = "*", col = "green", lwd = 1)
+lines(x = x, y = betagLARS[10, ], type = "b", pch = "*", col = "brown", lwd = 1)
+lines(x = x, y = betagLARS[11, ], type = "b", pch = "*", col = "brown", lwd = 1)
+lines(x = x, y = betagLARS[12, ], type = "b", pch = "*", col = "brown", lwd = 1)
+```
+
+```{r}
+d = lars::lars(X, Y, type = "lar", normalize = FALSE)
+plot(d)
+```
+
+```{r}
+e = lars::lars(X, Y, type = "stepwise", normalize = FALSE)
+plot(e)
+```
+
+The four pictures reveals the group LARS method gains similar result with the group garrotte method gains. All end of each solution path have estimate close to the OLS estimate.
+
