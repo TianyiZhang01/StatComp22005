@@ -19,6 +19,8 @@ We use a simple sample and test our gLARS() and gnng(), and compared with the re
 
 #### Sample
 
+We first generate $Z_1, Z_2, Z_3 \sim U\{0, 1, 2\}$ and $Z_4, Z_5 \sim U\{0, 1, 2, 3\}$, thus we have $5$ factors, and then use $3 \times 2 + 2 \times 3 = 12$ indicator variables to describe the value of $Z$. Giving a coefficient vector and noise term, we can get the respond variable $Y$. Now we want to find out which FACTORS have more effect on $Y$.
+
 ```{r}
 X = matrix(0, nrow = 100, ncol = 12)
 
@@ -435,3 +437,6 @@ plot(d)
 e = lars::lars(X, Y, type = "stepwise", normalize = FALSE)
 plot(e)
 ```
+
+The four pictures reveals the group LARS method gains similar result with the group garrotte method gains. All end of each solution path have estimate close to the OLS estimate.
+
